@@ -1,0 +1,24 @@
+name = "borrowlend-production-monitor"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Public, non-secret config — safe to commit.
+[vars]
+CONTRACT_ADDRESS = "0x52B8fBD5828900E6D73dF06C0c1dC509D4080e0D"
+ALCHEMY_NETWORK = "polygon-mainnet"
+EXPLORER_TX_BASE_URL = "https://polygonscan.com/tx"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "borrowlend-production-db"
+database_id = "83bbed60-ce3f-4998-a1a4-8c5e648312cf"
+
+# Secrets (set via `wrangler secret put <NAME>`, never committed):
+#   TELEGRAM_BOT_TOKEN
+#   TELEGRAM_ACTIVITY_CHANNEL_ID   (same value as TELEGRAM_ADMIN_GROUP_ID — one group for everything)
+#   TELEGRAM_ADMIN_GROUP_ID
+#   ALCHEMY_API_KEY
+#   ALCHEMY_SIGNING_KEY
+#   AUTH_EMAIL       (bootstrap login email, used only for the first-ever login)
+#   AUTH_PASSWORD    (bootstrap login password, used only for the first-ever login)
+#   AUTH_SECRET      (HMAC signing key for session tokens)

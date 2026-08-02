@@ -1,0 +1,21 @@
+# Copy this file to .dev.vars for local development (wrangler dev reads it automatically).
+# .dev.vars itself is gitignored — never commit real secrets.
+
+# Telegram bot used for activity/admin alerts
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_ACTIVITY_CHANNEL_ID=
+TELEGRAM_ADMIN_GROUP_ID=
+
+# Alchemy (RPC access + webhook signature verification)
+ALCHEMY_API_KEY=
+ALCHEMY_SIGNING_KEY=
+
+# Operator login — bootstrap credential for the first-ever login.
+# After the first successful login these are stored (hashed) in D1 and can be
+# changed via POST /auth/change-credentials; these secrets are then unused.
+AUTH_EMAIL=
+AUTH_PASSWORD=
+
+# Random 32+ byte secret used to sign session tokens (HMAC-SHA256).
+# Generate one with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+AUTH_SECRET=
