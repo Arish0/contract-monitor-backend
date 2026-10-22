@@ -1,15 +1,28 @@
-import { createPublicClient, http, decodeFunctionData, type Abi } from "viem";
+import { createPublicClient, http, decodeFunctionData, decodeErrorResult, toFunctionSelector, type Abi, type Hex } from "viem";
 import loanContractAbiJson from "../abi/loan-contract-abi.json";
 import { sendTelegram } from "../telegram";
-import { verifyAlchemySignature, alreadyHandled } from "../verify";
+import { verifyAlchemySignature, alreadyHandled, markHandled } from "../verify";
 import { logEvent, getSettings } from "../db";
 import type { Env, AlchemyMinedTx, ClientFailureReport } from "../types";
 
 const abi = loanContractAbiJson as Abi;
 
+// Selectors the deployed implementation exposes that the bundled ABI doesn't
+// (the ABI predates an upgrade that changed these signatures).
+const EXTRA_SELECTORS: Record<string, string> = {
+  "0xa82b8841": "acceptLoan",
+};
+
+const SELECTOR_NAMES: Record<string, string> = {
+  ...Object.fromEntries(
+    abi.filter((item) => item.type === "function").map((fn) => [toFunctionSelector(fn), fn.name]),
+  ),
+  ...EXTRA_SELECTORS,
+};
+
 function selectorFallback(input: string): string {
   const selector = input.slice(0, 10).toLowerCase();
-  return selector === "0xa82b8841" ? "acceptLoan" : `Unknown function (${selector})`;
+  return SELECTOR_NAMES[selector] ?? `Unknown function (${selector})`;
 }
 
 function rpcUrl(env: Env): string {
@@ -46,11 +59,13 @@ export async function handleAlchemyWebhook(req: Request, env: Env): Promise<Resp
     let gasUsed: number | null = null;
     let gasPrice: string | null = null;
     let blockTime: number | null = null;
+    let blockNumber: bigint;
     try {
       fullTx = await client.getTransaction({ hash: tx.hash as `0x${string}` });
       gasPrice = fullTx.gasPrice?.toString() ?? null;
       const receipt = await client.getTransactionReceipt({ hash: tx.hash as `0x${string}` });
       gasUsed = Number(receipt.gasUsed);
+      blockNumber = receipt.blockNumber;
       const block = await client.getBlock({ blockHash: receipt.blockHash });
       blockTime = Number(block.timestamp);
     } catch (err) {
@@ -58,11 +73,9 @@ export async function handleAlchemyWebhook(req: Request, env: Env): Promise<Resp
       continue;
     }
 
-    let decoded: { functionName: string; args?: readonly unknown[] } | null = null;
     let functionName: string;
     try {
-      decoded = decodeFunctionData({ abi, data: fullTx.input });
-      functionName = decoded.functionName;
+      functionName = decodeFunctionData({ abi, data: fullTx.input }).functionName;
     } catch (err) {
       functionName = selectorFallback(fullTx.input);
       console.warn("ABI decode failed; continuing with selector fallback", { txHash: tx.hash, selector: fullTx.input.slice(0, 10), err });
@@ -87,7 +100,7 @@ export async function handleAlchemyWebhook(req: Request, env: Env): Promise<Resp
         );
       }
     } else {
-      const reason = decoded ? await decodeRevertReason(client, fromAddress, decoded, env) : "unknown (function selector not present in ABI)";
+      const reason = await decodeRevertReason(client, fromAddress, fullTx.input, fullTx.value, blockNumber, env);
       await logEvent(env, {
         txHash: tx.hash,
         functionName: functionName,
@@ -106,28 +119,45 @@ export async function handleAlchemyWebhook(req: Request, env: Env): Promise<Resp
         );
       }
     }
+
+    await markHandled(tx.hash);
   }
 
   return new Response("ok");
 }
 
-/** Re-simulates a reverted call to recover a human-readable revert reason. */
+/**
+ * Replays the reverted call's raw calldata against the state just before its block to recover
+ * a human-readable revert reason. Works from the raw input, so it doesn't depend on the
+ * function being present in the ABI.
+ */
 async function decodeRevertReason(
   client: ReturnType<typeof createPublicClient>,
   fromAddress: string,
-  decoded: { functionName: string; args?: readonly unknown[] },
+  input: Hex,
+  value: bigint,
+  blockNumber: bigint,
   env: Env,
 ): Promise<string> {
   try {
-    await client.simulateContract({
-      address: env.CONTRACT_ADDRESS as `0x${string}`,
-      abi,
-      functionName: decoded.functionName,
-      args: (decoded.args ?? []) as any,
+    await client.call({
       account: fromAddress as `0x${string}`,
+      to: env.CONTRACT_ADDRESS as `0x${string}`,
+      data: input,
+      value,
+      blockNumber: blockNumber - 1n,
     });
-    return "unknown (re-simulation succeeded — state likely changed since mining)";
+    return "unknown (replay succeeded — revert depended on earlier txs in the same block)";
   } catch (err: any) {
+    const data: Hex | undefined = err.walk?.((e: any) => typeof e?.data === "string")?.data;
+    if (data && data.length >= 10) {
+      try {
+        const { errorName, args } = decodeErrorResult({ abi, data });
+        return args?.length ? `${errorName}(${args.map(String).join(", ")})` : errorName;
+      } catch {
+        // Not a custom error in our ABI — fall through to viem's own message (covers Error(string)/Panic).
+      }
+    }
     return err.shortMessage ?? err.cause?.reason ?? err.message ?? "unknown revert";
   }
 }
