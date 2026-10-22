@@ -26,10 +26,13 @@ CONTRACT_ADDRESS = "0x52B8fBD5828900E6D73dF06C0c1dC509D4080e0D"
 ALCHEMY_NETWORK = "polygon-mainnet"
 EXPLORER_TX_BASE_URL = "https://polygonscan.com/tx"
 
+# database_id is filled in by the deploy workflow, which looks it up by name
+# (contract-monitor-db, UUID d65b5a01-4334-4ac6-…). Paste the full UUID here to
+# deploy the dev Worker from a local machine.
 [[env.development.d1_databases]]
 binding = "DB"
-database_name = "REPLACE_WITH_DEV_D1_DATABASE_NAME"
-database_id = "REPLACE_WITH_DEV_D1_DATABASE_ID"
+database_name = "contract-monitor-db"
+database_id = "RESOLVED_BY_DEPLOY_WORKFLOW"
 
 # Secrets (set via `wrangler secret put <NAME>` — add `--env development` for the
 # dev Worker — never committed):
