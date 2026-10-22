@@ -36,13 +36,21 @@ jobs:
 
       - run: npm run typecheck
 
-      - name: Check development D1 binding is configured
+      - name: Resolve development D1 database ID
         if: github.ref_name == 'development'
         run: |
-          if grep -q 'REPLACE_WITH_DEV_D1' wrangler.toml; then
-            echo "::error file=wrangler.toml::Set the [[env.development.d1_databases]] database_name/database_id before deploying the development Worker."
+          if ! grep -q 'RESOLVED_BY_DEPLOY_WORKFLOW' wrangler.toml; then
+            echo "database_id already set in wrangler.toml"; exit 0
+          fi
+          DB_ID=$(curl -fsS "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database?name=contract-monitor-db" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            | jq -r '.result[] | select(.name == "contract-monitor-db") | .uuid')
+          if [ -z "$DB_ID" ]; then
+            echo "::error::D1 database contract-monitor-db not found in account ${CLOUDFLARE_ACCOUNT_ID}"
             exit 1
           fi
+          echo "Using contract-monitor-db ($DB_ID)"
+          sed -i "s/RESOLVED_BY_DEPLOY_WORKFLOW/${DB_ID}/" wrangler.toml
 
       - name: Apply D1 schema
         # schema.sql is idempotent (IF NOT EXISTS / INSERT OR IGNORE), so it's safe on every deploy.
