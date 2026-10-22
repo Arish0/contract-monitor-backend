@@ -77,4 +77,13 @@ jobs:
         run: npx wrangler d1 execute DB --remote --file=schema.sql ${WRANGLER_ENV:+--env "$WRANGLER_ENV"}
 
       - name: Deploy Worker
-        run: npx wrangler deploy ${WRANGLER_ENV:+--env "$WRANGLER_ENV"}
+        run: |
+          if ! npx wrangler deploy ${WRANGLER_ENV:+--env "$WRANGLER_ENV"} > deploy.log 2>&1; then
+            cat deploy.log
+            # Surface wrangler's error lines as annotations so they show on the run summary.
+            grep -E '✘|ERROR|\[code: [0-9]+\]|Authentication|permission' deploy.log | head -20 | while IFS= read -r line; do
+              echo "::error title=wrangler deploy::${line//%/%25}"
+            done
+            exit 1
+          fi
+          cat deploy.log
