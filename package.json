@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "deploy:dev": "wrangler deploy --env development",
     "db:migrate": "wrangler d1 execute borrowlend-production-db --remote --file=schema.sql",
+    "db:migrate:dev": "wrangler d1 execute DB --env development --remote --file=schema.sql",
     "db:migrate:local": "wrangler d1 execute borrowlend-production-db --local --file=schema.sql",
     "typecheck": "tsc --noEmit"
   },

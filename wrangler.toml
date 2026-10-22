@@ -13,7 +13,26 @@ binding = "DB"
 database_name = "borrowlend-production-db"
 database_id = "83bbed60-ce3f-4998-a1a4-8c5e648312cf"
 
-# Secrets (set via `wrangler secret put <NAME>`, never committed):
+# ---------------------------------------------------------------------------
+# Development Worker (deployed from the `development` branch).
+# `vars` and `d1_databases` are not inherited from the top level, so they're
+# repeated here. Deploy with: wrangler deploy --env development
+# ---------------------------------------------------------------------------
+[env.development]
+name = "contract-monitor"
+
+[env.development.vars]
+CONTRACT_ADDRESS = "0x52B8fBD5828900E6D73dF06C0c1dC509D4080e0D"
+ALCHEMY_NETWORK = "polygon-mainnet"
+EXPLORER_TX_BASE_URL = "https://polygonscan.com/tx"
+
+[[env.development.d1_databases]]
+binding = "DB"
+database_name = "REPLACE_WITH_DEV_D1_DATABASE_NAME"
+database_id = "REPLACE_WITH_DEV_D1_DATABASE_ID"
+
+# Secrets (set via `wrangler secret put <NAME>` — add `--env development` for the
+# dev Worker — never committed):
 #   TELEGRAM_BOT_TOKEN
 #   TELEGRAM_ACTIVITY_CHANNEL_ID   (same value as TELEGRAM_ADMIN_GROUP_ID — one group for everything)
 #   TELEGRAM_ADMIN_GROUP_ID
