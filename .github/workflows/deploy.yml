@@ -36,15 +36,35 @@ jobs:
 
       - run: npm run typecheck
 
+      - name: Check Cloudflare API token
+        run: |
+          if [ -z "${CLOUDFLARE_API_TOKEN}" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN is empty in this job. Add it under Settings → Secrets and variables → Actions → Repository secrets (not only under an environment)."
+            exit 1
+          fi
+          # User tokens verify at /user/tokens/verify, account-owned tokens at /accounts/<id>/tokens/verify.
+          for path in "user/tokens/verify" "accounts/${CLOUDFLARE_ACCOUNT_ID}/tokens/verify"; do
+            STATUS=$(curl -sS "https://api.cloudflare.com/client/v4/${path}" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" | jq -r '.result.status // empty')
+            if [ "$STATUS" = "active" ]; then echo "Token is valid and active"; exit 0; fi
+          done
+          echo "::error::CLOUDFLARE_API_TOKEN was rejected by Cloudflare (invalid, expired, or revoked). Create a new token and update the repository secret."
+          exit 1
+
       - name: Resolve development D1 database ID
         if: github.ref_name == 'development'
         run: |
           if ! grep -q 'RESOLVED_BY_DEPLOY_WORKFLOW' wrangler.toml; then
             echo "database_id already set in wrangler.toml"; exit 0
           fi
-          DB_ID=$(curl -fsS "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database?name=contract-monitor-db" \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            | jq -r '.result[] | select(.name == "contract-monitor-db") | .uuid')
+          RESP=$(curl -sS -w '\n%{http_code}' "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database?name=contract-monitor-db" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
+          CODE=$(echo "$RESP" | tail -n1); BODY=$(echo "$RESP" | sed '$d')
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Listing D1 databases failed (HTTP $CODE): $(echo "$BODY" | jq -c '.errors')"
+            echo "::error::The token needs 'Account → D1 → Edit' (and 'Account → Workers Scripts → Edit') for account ${CLOUDFLARE_ACCOUNT_ID}."
+            exit 1
+          fi
+          DB_ID=$(echo "$BODY" | jq -r '.result[] | select(.name == "contract-monitor-db") | .uuid')
           if [ -z "$DB_ID" ]; then
             echo "::error::D1 database contract-monitor-db not found in account ${CLOUDFLARE_ACCOUNT_ID}"
             exit 1
