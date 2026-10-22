@@ -18,11 +18,15 @@ export async function verifyAlchemySignature(
 }
 
 // Dedupe via the Workers Cache API (free, no per-day write cap unlike KV).
+function dedupeKey(txHash: string): Request {
+  return new Request(`https://dedupe.local/${txHash}`);
+}
+
 export async function alreadyHandled(txHash: string): Promise<boolean> {
-  const cache = caches.default;
-  const key = new Request(`https://dedupe.local/${txHash}`);
-  const hit = await cache.match(key);
-  if (hit) return true;
-  await cache.put(key, new Response("1", { headers: { "Cache-Control": "max-age=86400" } }));
-  return false;
+  return (await caches.default.match(dedupeKey(txHash))) !== undefined;
+}
+
+// Called only after a tx is fully processed, so a failed RPC fetch lets Alchemy's retry try again.
+export async function markHandled(txHash: string): Promise<void> {
+  await caches.default.put(dedupeKey(txHash), new Response("1", { headers: { "Cache-Control": "max-age=86400" } }));
 }
