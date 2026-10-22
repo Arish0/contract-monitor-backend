@@ -7,6 +7,11 @@ import type { Env, AlchemyMinedTx, ClientFailureReport } from "../types";
 
 const abi = loanContractAbiJson as Abi;
 
+function selectorFallback(input: string): string {
+  const selector = input.slice(0, 10).toLowerCase();
+  return selector === "0xa82b8841" ? "acceptLoan" : `Unknown function (${selector})`;
+}
+
 function rpcUrl(env: Env): string {
   return `https://${env.ALCHEMY_NETWORK}.g.alchemy.com/v2/${env.ALCHEMY_API_KEY}`;
 }
@@ -53,17 +58,20 @@ export async function handleAlchemyWebhook(req: Request, env: Env): Promise<Resp
       continue;
     }
 
-    let decoded;
+    let decoded: { functionName: string; args?: readonly unknown[] } | null = null;
+    let functionName: string;
     try {
       decoded = decodeFunctionData({ abi, data: fullTx.input });
-    } catch {
-      continue; // calldata doesn't match the ABI (e.g. plain transfer) — skip
+      functionName = functionName;
+    } catch (err) {
+      functionName = selectorFallback(fullTx.input);
+      console.warn("ABI decode failed; continuing with selector fallback", { txHash: tx.hash, selector: fullTx.input.slice(0, 10), err });
     }
 
     if (tx.status === 1) {
       await logEvent(env, {
         txHash: tx.hash,
-        functionName: decoded.functionName,
+        functionName: functionName,
         fromAddress,
         status: "success",
         gasUsed,
@@ -75,14 +83,14 @@ export async function handleAlchemyWebhook(req: Request, env: Env): Promise<Resp
         await sendTelegram(
           env,
           env.TELEGRAM_ACTIVITY_CHANNEL_ID,
-          `✅ ${decoded.functionName} called\nBy: ${fromAddress}\nTx: ${env.EXPLORER_TX_BASE_URL}/${tx.hash}`,
+          `✅ ${functionName} called\nBy: ${fromAddress}\nTx: ${env.EXPLORER_TX_BASE_URL}/${tx.hash}`,
         );
       }
     } else {
       const reason = await decodeRevertReason(client, fromAddress, decoded, env);
       await logEvent(env, {
         txHash: tx.hash,
-        functionName: decoded.functionName,
+        functionName: functionName,
         fromAddress,
         status: "reverted",
         gasUsed,
@@ -94,7 +102,7 @@ export async function handleAlchemyWebhook(req: Request, env: Env): Promise<Resp
         await sendTelegram(
           env,
           env.TELEGRAM_ADMIN_GROUP_ID,
-          `🚨 ${decoded.functionName} REVERTED\nBy: ${fromAddress}\nReason: ${reason}\nTx: ${env.EXPLORER_TX_BASE_URL}/${tx.hash}`,
+          `🚨 ${functionName} REVERTED\nBy: ${fromAddress}\nReason: ${reason}\nTx: ${env.EXPLORER_TX_BASE_URL}/${tx.hash}`,
         );
       }
     }
@@ -114,7 +122,7 @@ async function decodeRevertReason(
     await client.simulateContract({
       address: env.CONTRACT_ADDRESS as `0x${string}`,
       abi,
-      functionName: decoded.functionName,
+      functionName: functionName,
       args: (decoded.args ?? []) as any,
       account: fromAddress as `0x${string}`,
     });
