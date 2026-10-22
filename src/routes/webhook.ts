@@ -62,7 +62,7 @@ export async function handleAlchemyWebhook(req: Request, env: Env): Promise<Resp
     let functionName: string;
     try {
       decoded = decodeFunctionData({ abi, data: fullTx.input });
-      functionName = functionName;
+      functionName = decoded.functionName;
     } catch (err) {
       functionName = selectorFallback(fullTx.input);
       console.warn("ABI decode failed; continuing with selector fallback", { txHash: tx.hash, selector: fullTx.input.slice(0, 10), err });
@@ -87,7 +87,7 @@ export async function handleAlchemyWebhook(req: Request, env: Env): Promise<Resp
         );
       }
     } else {
-      const reason = await decodeRevertReason(client, fromAddress, decoded, env);
+      const reason = decoded ? await decodeRevertReason(client, fromAddress, decoded, env) : "unknown (function selector not present in ABI)";
       await logEvent(env, {
         txHash: tx.hash,
         functionName: functionName,
@@ -122,7 +122,7 @@ async function decodeRevertReason(
     await client.simulateContract({
       address: env.CONTRACT_ADDRESS as `0x${string}`,
       abi,
-      functionName: functionName,
+      functionName: decoded.functionName,
       args: (decoded.args ?? []) as any,
       account: fromAddress as `0x${string}`,
     });
